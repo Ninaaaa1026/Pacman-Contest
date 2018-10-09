@@ -3,7 +3,7 @@ import random, time, util, sys
 from game import Directions
 from util import nearestPoint
 
-SHOW = True
+SHOW = False
 DEFENSE_TIMER_MAX = 100.0
 USE_BELIEF_DISTANCE = True
 arguments = {}
