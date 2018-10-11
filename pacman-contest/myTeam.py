@@ -5,7 +5,7 @@ from util import nearestPoint
 import copy
 from game import Actions
 
-SHOW = True
+SHOW = False
 DEFENSE_TIMER_MAX = 100.0
 USE_BELIEF_DISTANCE = True
 arguments = {}
@@ -23,8 +23,6 @@ def createTeam(firstIndex, secondIndex, isRed,
         arguments['numTraining'] = args['numTraining']
     return [eval(first)(firstIndex), eval(second)(secondIndex)]
 
-
-# LeeroyAgent inherits from ApproximateQAgent
 # Our agent does worse with training, because we did not focus on training
 class ApproximateQAgent(CaptureAgent):
 
@@ -54,8 +52,6 @@ class ApproximateQAgent(CaptureAgent):
             return successor.generateSuccessor(self.index, action)
         else:
             return successor
-
-
 
     def isHomeSide(self, node, gameState):
         width, height = gameState.data.layout.width, gameState.data.layout.height
@@ -98,12 +94,9 @@ class ApproximateQAgent(CaptureAgent):
         while not Q.isEmpty():
             node, path = Q.pop()
             pathCost = tempCost[explored.index(node)]
-            print node
             if self.isHomeSide(node, gameState):
-                print path
                 return path
             for successor in self.legalAction[node]:
-                print successor
                 state, action, cost = successor
                 if state not in explored:
                     childDist = float('inf')
@@ -310,10 +303,9 @@ class ReflexAgent(ApproximateQAgent):
         features['successorScore'] = -len(foodList)
 
         # Compute distance to the nearest food
-        # uses leeroy distance so its prioritizes either top or bottom food
         if len(foodList) > 0:  # This should always be True,  but better safe than sorry
-            leeroyDistance = min([self.getLeeroyDistance(myPos, food) for food in foodList])
-            features['distanceToFood'] = leeroyDistance
+            minDist=min([self.getMazeDistance(myPos, food) + abs(self.favoredY - food[1]) for food in foodList])
+            features['distanceToFood'] =  minDist
 
         # Grab all enemies
         enemies = [successor.getAgentState(i) for i in self.getOpponents(successor)]
@@ -375,13 +367,6 @@ class ReflexAgent(ApproximateQAgent):
         # It depends on how many loops we do
         features['legalActions'] = self.getLegalActionModifier(gameState, FORWARD_LOOKING_LOOPS)
         return features
-
-    # def getWeights(self):
-    #     return self.weights
-
-    # Adds (maze distance) to (the difference in y between the food and our favored y)
-    def getLeeroyDistance(self, myPos, food):
-        return self.getMazeDistance(myPos, food) + abs(self.favoredY - food[1])
 
     # If there are not any scared ghosts, then we value eating pellets
     def getCapsuleValue(self, myPos, successor, scaredGhosts):
@@ -471,7 +456,6 @@ class ReflexAgent(ApproximateQAgent):
         beliefs[opponentIndex] = allPossible
 
 
-# Leeroy Top Agent - favors pellets with a higher y
 class TopAgent(ReflexAgent):
 
     def registerInitialState(self, gameState):
@@ -488,15 +472,12 @@ class TopAgent(ReflexAgent):
         enemyAgents = [gameState.getAgentState(i) for i in self.getOpponents(gameState)]
         ghosts = [enemyAgent.getPosition() for enemyAgent in enemyAgents if not enemyAgent.isPacman]
         agentPos = gameState.getAgentPosition(self.index)
-        enemyAgents = [gameState.getAgentState(i) for i in self.getOpponents(gameState)]
         enemyDis = 999999
-        enemyPos=None
         for ghost in ghosts:
             if ghost != None:
                 dis = self.getMazeDistance(agentPos, ghost)
                 if dis < enemyDis:
                     enemyDis = dis
-                    enemyPos = ghost
         if (SHOW):
             print "AGENT " + str(self.index) + " choosing action!"
         if len(legalActions):
@@ -529,7 +510,6 @@ class TopAgent(ReflexAgent):
                     bestDist = dist
         return action
 
-# Leeroy Bottom Agent - favors pellets with a lower y
 class BottomAgent(ReflexAgent):
 
     def registerInitialState(self, gameState):
@@ -546,15 +526,12 @@ class BottomAgent(ReflexAgent):
         enemyAgents = [gameState.getAgentState(i) for i in self.getOpponents(gameState)]
         ghosts = [enemyAgent.getPosition() for enemyAgent in enemyAgents if not enemyAgent.isPacman]
         agentPos = gameState.getAgentPosition(self.index)
-        enemyAgents = [gameState.getAgentState(i) for i in self.getOpponents(gameState)]
         enemyDis = 999999
-        enemyPos = None
         for ghost in ghosts:
             if ghost != None:
                 dis = self.getMazeDistance(agentPos, ghost)
                 if dis < enemyDis:
                     enemyDis = dis
-                    enemyPos = ghost
         if (SHOW):
             print "AGENT " + str(self.index) + " choosing action!"
         if len(legalActions):
