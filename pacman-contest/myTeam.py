@@ -221,6 +221,12 @@ class ReflexAgent(ApproximateQAgent):
         self.lastNumReturnedBeans = 0.0
         self.legalAction, self.corners = self.initialLegalAction(gameState)
         self.getLegalPositions(gameState)
+        self.defendList = {}
+        for i in self.getTeam(gameState):
+            if i <= 1:
+                self.defendList[i] = True
+            else:
+                self.defendList[i] = False
 
     def __init__(self, index):
         ApproximateQAgent.__init__(self, index)
@@ -314,49 +320,48 @@ class ReflexAgent(ApproximateQAgent):
         nonScaredGhosts = [a for a in enemies if not a.isPacman and a.getPosition() != None and not a.scaredTimer > 0]
         scaredGhosts = [a for a in enemies if not a.isPacman and a.getPosition() != None and a.scaredTimer > 0]
 
-        # Computes distance to enemy non scared ghosts we can see
-        dists = []
-        minPos = None
-        enemyDis=999999
-        for index in self.getOpponents(successor):
-            enemy = successor.getAgentState(index)
-            if enemy in nonScaredGhosts:
-                if USE_BELIEF_DISTANCE:
-                    dis=self.getMazeDistance(myPos, self.getMostLikelyGhostPosition(index))
-                else:
-                    dis=self.getMazeDistance(myPos, enemy.getPosition())
-                if dis < enemyDis:
-                    enemyDis = dis
-                    enemyPos = enemy.getPosition()
-                dists.append(dis)
+        enemyDists,enemyPos,enemyDis = self.getMiniDist(successor, myPos, nonScaredGhosts)
+        enemyPacmanDists, enemyPacmanPos, enemyPacmanDis = self.getMiniDist(successor, myPos, enemyPacmen)
 
         if myPos in self.corners:
             features['isCorner'] = 8
 
         # Use the smallest distance
-        if len(dists) > 0:
-            if not self.isHomeSide(myPos,gameState) :
+        if len(enemyDists) > 0:
+            if not self.isHomeSide(gameState.getAgentPosition(self.index),gameState) :
                 if enemyDis == self.getMazeDistance(gameState.getAgentPosition(self.index),enemyPos):
+            #if self.isDefend:
                     features['ghostDistance'] = enemyDis
 
         features['capsuleValue'] = self.getCapsuleValue(myPos, successor, scaredGhosts)
-        if self.isDefend:
-            features['chaseEnemyValue'] = self.getChaseEnemyWeight(myPos, enemyPacmen)
+
+        # Use the smallest distance
+        if len(enemyPacmanDists) > 0:
+            #if self.isHomeSide(gameState.getAgentPosition(self.index), gameState):
+            for i in self.getTeam(gameState):
+                if i != self.index:
+                    if self.defendList[self.index]:
+                        if self.isHomeSide(gameState.getAgentPosition(i), gameState) and not self.isHomeSide(
+                                gameState.getAgentPosition(self.index), gameState):
+                            self.defendList[self.index]=False
+                            self.defendList[i] = True
+                        elif self.isHomeSide(gameState.getAgentPosition(self.index), gameState):
+                            features['chaseEnemyValue'] = enemyPacmanDis
+                #if enemyPacmanDis == self.getMazeDistance(gameState.getAgentPosition(self.index), enemyPacmanPos):
+
+                    # If on defense, heavily value chasing after enemies
+        if self.defenseTimer > 0:
+            self.defenseTimer -= 1
+            features['chaseEnemyValue'] *= 100
+                # If our opponents ate all our food (except for 2), we rush them
+        if len(self.getFoodYouAreDefending(successor).asList()) <= 10:
+            features['chaseEnemyValue'] *= 100
 
         # If we cashed in any pellets, we shift over to defense mode for a time
         if myState.numReturned != self.lastNumReturnedBeans:
             self.defenseTimer = DEFENSE_TIMER_MAX
             self.lastNumReturnedBeans = myState.numReturned
-        # If on defense, heavily value chasing after enemies
-        if self.defenseTimer > 0:
-            self.defenseTimer -= 1
-            if self.isDefend:
-                features['chaseEnemyValue'] *= 100
 
-        # If our opponents ate all our food (except for 2), we rush them
-        if len(self.getFoodYouAreDefending(successor).asList()) <= 10:
-            if self.isDefend:
-                features['chaseEnemyValue'] *= 100
 
         # Heavily prioritize not stopping
         if action == Directions.STOP:
@@ -367,6 +372,24 @@ class ReflexAgent(ApproximateQAgent):
         # It depends on how many loops we do
         features['legalActions'] = self.getLegalActionModifier(gameState, FORWARD_LOOKING_LOOPS)
         return features
+
+    def getMiniDist(self,successor,myPos,opponentsList):
+        # Computes distance to enemy non scared ghosts we can see
+        dists = []
+        enemyPos = None
+        enemyDis = 999999
+        for index in self.getOpponents(successor):
+            enemy = successor.getAgentState(index)
+            if enemy in opponentsList:
+                if USE_BELIEF_DISTANCE:
+                    dis = self.getMazeDistance(myPos, self.getMostLikelyGhostPosition(index))
+                else:
+                    dis = self.getMazeDistance(myPos, enemy.getPosition())
+                if dis < enemyDis:
+                    enemyDis = dis
+                    enemyPos = enemy.getPosition()
+                dists.append(dis)
+        return dists,enemyPos,enemyDis
 
     # If there are not any scared ghosts, then we value eating pellets
     def getCapsuleValue(self, myPos, successor, scaredGhosts):
@@ -384,16 +407,6 @@ class ReflexAgent(ApproximateQAgent):
         else:
             return 0
 
-    def getChaseEnemyWeight(self, myPos, enemyPacmen):
-        if len(enemyPacmen) > 0:
-            # Computes distance to enemy pacmen we can see
-            dists = [self.getMazeDistance(myPos, enemy.getPosition()) for enemy in enemyPacmen]
-            # Use the smallest distance
-            if len(dists) > 0:
-                smallestDist = min(dists)
-                return smallestDist
-        return 0
-
     # Uses our beliefs based on the noisyDistance, and we just use the highest belief
     def getMostLikelyGhostPosition(self, ghostAgentIndex):
         return max(beliefs[ghostAgentIndex])
@@ -408,9 +421,6 @@ class ReflexAgent(ApproximateQAgent):
                 numActions += self.getLegalActionModifier(newState, numLoops - 1)
         return numActions
 
-    '''
-    Beliefs section-----------------------
-    '''
 
     def initializeBeliefs(self, gameState):
         beliefs.extend([None for x in range(len(self.getOpponents(gameState)) + len(self.getTeam(gameState)))])
@@ -455,6 +465,60 @@ class ReflexAgent(ApproximateQAgent):
         allPossible.normalize()
         beliefs[opponentIndex] = allPossible
 
+    def chooseAction(self, gameState):
+        # Append game state to observation history...
+        self.observationHistory.append(gameState)
+        # Pick Action
+        legalActions = gameState.getLegalActions(self.index)
+        action = None
+        enemyAgents = [gameState.getAgentState(i) for i in self.getOpponents(gameState)]
+        ghosts = [enemyAgent.getPosition() for enemyAgent in enemyAgents if not enemyAgent.isPacman]
+        agentPos = gameState.getAgentPosition(self.index)
+        enemyIndexes=[]
+        for ene in self.getOpponents(gameState):
+            if not gameState.getAgentState(ene).isPacman:
+                enemyIndexes.append(ene)
+        enemyDis = 999999
+        enemyPos = None
+        for ghost in  enemyIndexes:
+            ghostPos = gameState.getAgentPosition(ghost)
+            if ghostPos != None:
+                dis = self.getMazeDistance(agentPos, ghostPos)
+                if dis < enemyDis:
+                    enemyDis = dis
+                    enemyPos = ghost
+                    enemyInx = ghost
+
+        if (SHOW):
+            print "AGENT " + str(self.index) + " choosing action!"
+        if len(legalActions):
+            if util.flipCoin(self.epsilon) and self.episodesSoFar < self.numTraining:
+                action = random.choice(legalActions)
+                if (SHOW):
+                    print "ACTION CHOSE FROM RANDOM: " + action
+            else:
+                action = self.computeActionFromQValues(gameState)
+                if (SHOW):
+                    print "ACTION CHOSE FROM Q VALUES: " + action
+
+        self.lastAction = action
+        if (len(ghosts) > 0 and not self.isHomeSide(agentPos, gameState)):
+            if enemyDis <= 3 and gameState.getAgentState(enemyInx).scaredTimer ==0:
+                actionlist = self.aStarSearch(gameState, agentPos, enemyDis)
+                action = actionlist[0]
+
+        foodLeft = len(self.getFood(gameState).asList())
+        # Prioritize going back to start if we have <= 2 pellets left
+        if foodLeft <= 2:
+            bestDist = 9999
+            for a in legalActions:
+                successor = self.getSuccessor(gameState, a)
+                pos2 = successor.getAgentPosition(self.index)
+                dist = self.getMazeDistance(self.start, pos2)
+                if dist < bestDist:
+                    action = a
+                    bestDist = dist
+        return action
 
 class TopAgent(ReflexAgent):
 
@@ -463,103 +527,9 @@ class TopAgent(ReflexAgent):
         self.favoredY = gameState.data.layout.height
         self.isDefend = True
 
-    def chooseAction(self, gameState):
-        # Append game state to observation history...
-        self.observationHistory.append(gameState)
-        # Pick Action
-        legalActions = gameState.getLegalActions(self.index)
-        action = None
-        enemyAgents = [gameState.getAgentState(i) for i in self.getOpponents(gameState)]
-        ghosts = [enemyAgent.getPosition() for enemyAgent in enemyAgents if not enemyAgent.isPacman]
-        agentPos = gameState.getAgentPosition(self.index)
-        enemyDis = 999999
-        for ghost in ghosts:
-            if ghost != None:
-                dis = self.getMazeDistance(agentPos, ghost)
-                if dis < enemyDis:
-                    enemyDis = dis
-        if (SHOW):
-            print "AGENT " + str(self.index) + " choosing action!"
-        if len(legalActions):
-            if util.flipCoin(self.epsilon) and self.episodesSoFar < self.numTraining:
-                action = random.choice(legalActions)
-                if (SHOW):
-                    print "ACTION CHOSE FROM RANDOM: " + action
-            else:
-                action = self.computeActionFromQValues(gameState)
-                if (SHOW):
-                    print "ACTION CHOSE FROM Q VALUES: " + action
-
-        self.lastAction = action
-        if (len(ghosts) > 0 and not self.isHomeSide(agentPos, gameState)):
-            if enemyDis <= 5:
-                actionlist = self.aStarSearch(gameState, agentPos, enemyDis)
-                print actionlist
-                action = actionlist[0]
-
-        foodLeft = len(self.getFood(gameState).asList())
-        # Prioritize going back to start if we have <= 2 pellets left
-        if foodLeft <= 2:
-            bestDist = 9999
-            for a in legalActions:
-                successor = self.getSuccessor(gameState, a)
-                pos2 = successor.getAgentPosition(self.index)
-                dist = self.getMazeDistance(self.start, pos2)
-                if dist < bestDist:
-                    action = a
-                    bestDist = dist
-        return action
-
 class BottomAgent(ReflexAgent):
 
     def registerInitialState(self, gameState):
         ReflexAgent.registerInitialState(self, gameState)
         self.favoredY = 0.0
         self.isDefend = False
-
-    def chooseAction(self, gameState):
-        # Append game state to observation history...
-        self.observationHistory.append(gameState)
-        # Pick Action
-        legalActions = gameState.getLegalActions(self.index)
-        action = None
-        enemyAgents = [gameState.getAgentState(i) for i in self.getOpponents(gameState)]
-        ghosts = [enemyAgent.getPosition() for enemyAgent in enemyAgents if not enemyAgent.isPacman]
-        agentPos = gameState.getAgentPosition(self.index)
-        enemyDis = 999999
-        for ghost in ghosts:
-            if ghost != None:
-                dis = self.getMazeDistance(agentPos, ghost)
-                if dis < enemyDis:
-                    enemyDis = dis
-        if (SHOW):
-            print "AGENT " + str(self.index) + " choosing action!"
-        if len(legalActions):
-            if util.flipCoin(self.epsilon) and self.episodesSoFar < self.numTraining:
-                action = random.choice(legalActions)
-                if (SHOW):
-                    print "ACTION CHOSE FROM RANDOM: " + action
-            else:
-                action = self.computeActionFromQValues(gameState)
-                if (SHOW):
-                    print "ACTION CHOSE FROM Q VALUES: " + action
-
-        self.lastAction = action
-        if (len(ghosts) > 0 and not self.isHomeSide(agentPos, gameState)):
-            if enemyDis <= 5:
-                actionlist = self.aStarSearch(gameState, agentPos, enemyDis)
-                print actionlist
-                action = actionlist[0]
-
-        foodLeft = len(self.getFood(gameState).asList())
-        # Prioritize going back to start if we have <= 2 pellets left
-        if foodLeft <= 2:
-            bestDist = 9999
-            for a in legalActions:
-                successor = self.getSuccessor(gameState, a)
-                pos2 = successor.getAgentPosition(self.index)
-                dist = self.getMazeDistance(self.start, pos2)
-                if dist < bestDist:
-                    action = a
-                    bestDist = dist
-        return action
