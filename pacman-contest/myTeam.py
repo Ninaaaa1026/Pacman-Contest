@@ -227,9 +227,9 @@ class ReflexCaptureAgent(ApproximateQAgent):
         self.weights['ghostDistance'] = 5
         self.weights['stop'] = -1000
         self.weights['legalActions'] = 100
-        self.weights['capsulesValue'] = 600
+        self.weights['capsulesValue'] = 380
         self.distanceToTrackcapsulesValue = 8
-        self.weights['chaseEnemyValue'] = -100
+        self.weights['chaseEnemyValue'] = -230
         self.weights['corner'] = -10
         self.legalActionMap = {}
         self.legalPositionsInitialized = False
@@ -265,10 +265,10 @@ class ReflexCaptureAgent(ApproximateQAgent):
     def getWeights(self):
         return self.weights
 
-    def getcapsulesValue(self, myPos, successor, scaredGhosts):
+    def getcapsulesValue(self, myPos, successor, nonScaredGhosts):
         powerPellets = self.getCapsules(successor)
         minDistance = 0
-        if len(powerPellets) > 0 and len(scaredGhosts) == 0:
+        if len(powerPellets) > 0 and len(nonScaredGhosts) == 0:
             distances = [self.getMazeDistance(myPos, pellet) for pellet in powerPellets]
             minDistance = min(distances)
         return max(self.distanceToTrackcapsulesValue - minDistance, 0)
