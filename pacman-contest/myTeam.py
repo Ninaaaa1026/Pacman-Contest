@@ -31,8 +31,6 @@ def createTeam(firstIndex, secondIndex, isRed,
         arguments['numTraining'] = args['numTraining']
     return [eval(first)(firstIndex), eval(second)(secondIndex)]
 
-
-
 class ApproximateQAgent(CaptureAgent):
 
     def __init__(self, index):
@@ -62,12 +60,12 @@ class ApproximateQAgent(CaptureAgent):
     def isHomeSide(self, node, gameState):
         width, height = gameState.data.layout.width, gameState.data.layout.height
         if self.index in [0, 2]:
-            if node[0] < width / 2-1:
+            if node[0] <width / 2-1:
                 return True
             else:
                 return False
         else:
-            if node[0] > width / 2:
+            if node[0] >width / 2:
                 return True
             else:
                 return False
@@ -130,9 +128,7 @@ class ApproximateQAgent(CaptureAgent):
         bestValue = -999999
         bestActions = None
         for action in state.getLegalActions(self.index):
-
             value = self.getQValue(state, action)
-
             if value > bestValue:
                 bestActions = [action]
                 bestValue = value
@@ -146,29 +142,21 @@ class ApproximateQAgent(CaptureAgent):
         return self.weights
 
     def computeValueFromQValues(self, state):
-
         bestValue = -999999
         noLegalActions = True
         for action in state.getLegalActions(self.index):
-
             noLegalActions = False
             value = self.getQValue(state, action)
             if value > bestValue:
                 bestValue = value
         if noLegalActions:
             return 0
-
         return bestValue
 
     def getQValue(self, state, action):
-
-        total = 0
         weights = self.getWeights()
         features = self.getFeatures(state, action)
-        for feature in features:
-
-            total += features[feature] * weights[feature]
-        return total
+        return features * weights
 
     def getReward(self, gameState):
         foodList = self.getFood(gameState).asList()
@@ -197,7 +185,6 @@ class ApproximateQAgent(CaptureAgent):
         self.weights = newWeights.copy()
 
     def final(self, state):
-
         CaptureAgent.final(self, state)
         self.episodesCur += 1
 
@@ -215,6 +202,7 @@ class ReflexCaptureAgent(ApproximateQAgent):
         for enemy in self.getOpponents(gameState):
             beliefs[enemy] = util.Counter()
             beliefs[enemy][gameState.getInitialAgentPosition(enemy)] = 1.0
+            beliefs[enemy].normalize()
         beliefsInitialized.append("initial")
 
     def __init__(self, index):
@@ -223,14 +211,16 @@ class ReflexCaptureAgent(ApproximateQAgent):
         ApproximateQAgent.__init__(self, index)
         self.weights = util.Counter()
         self.weights['successorScore'] = 300
-        self.weights['distToFood'] = -15
-        self.weights['ghostDistance'] = 5
+        self.weights['distToFood'] = -20
+        self.weights['distToGhost'] = 2
+        self.weights['capsulesValue'] = 20
+        self.weights['capsulesScore'] = 500
+        self.distanceToTrackcapsulesValue = 8
+        self.weights['chaseEnemyValue'] = -30
+        self.weights['catchPacman'] = 500
+        self.weights['corner'] = -15
         self.weights['stop'] = -1000
         self.weights['legalActions'] = 100
-        self.weights['capsulesValue'] = 380
-        self.distanceToTrackcapsulesValue = 8
-        self.weights['chaseEnemyValue'] = -230
-        self.weights['corner'] = -10
         self.legalActionMap = {}
         self.legalPositionsInitialized = False
 
@@ -252,24 +242,21 @@ class ReflexCaptureAgent(ApproximateQAgent):
         return self.legalActionMap[currentPos]
 
     def getMiniDist(self,gameState,myPos,opponentsList):
-        enemyPos = None
-        enemyDis = 999999
+        enemyInfo = []
         for index in opponentsList:
             pos = self.getMostLikelyGhostPosition(gameState,index)
             dis = self.getMazeDistance(myPos, pos)
-            if dis < enemyDis:
-                enemyDis = dis
-                enemyPos = pos
-        return enemyPos, enemyDis
+            enemyInfo.append((pos,dis))
+        return enemyInfo
 
     def getWeights(self):
         return self.weights
 
     def getcapsulesValue(self, myPos, successor, nonScaredGhosts):
-        powerPellets = self.getCapsules(successor)
+        powerCapsules = self.getCapsules(successor)
         minDistance = 0
-        if len(powerPellets) > 0 and len(nonScaredGhosts) == 0:
-            distances = [self.getMazeDistance(myPos, pellet) for pellet in powerPellets]
+        if len(powerCapsules) > 0 and len(nonScaredGhosts) == 0:
+            distances = [self.getMazeDistance(myPos, pellet) for pellet in powerCapsules]
             minDistance = min(distances)
         return max(self.distanceToTrackcapsulesValue - minDistance, 0)
 
@@ -295,18 +282,18 @@ class ReflexCaptureAgent(ApproximateQAgent):
         for p in self.getLegalPositions(gameState):
             newProbability = util.Counter()
             probPos = {}
-            x,y=p
-            probPos[1]=(x+1,y)
-            probPos[2]=(x, y+1)
-            probPos[3]=(x - 1, y)
-            probPos[4]=(x, y - 1)
-            probPos[5]=(x , y)
+            x, y = p
+            probPos[1] = (x + 1, y)
+            probPos[2] = (x, y + 1)
+            probPos[3] = (x - 1, y)
+            probPos[4] = (x, y - 1)
+            probPos[5] = (x, y)
             for newP in probPos.values():
                 if newP in self.getLegalPositions(gameState):
                     newProbability[newP] = 1.0
             newProbability.normalize()
             for newPos, prob in newProbability.items():
-                newBeliefs[newPos] += prob * (beliefs[opponent][newPos]+ 0.0001)
+                newBeliefs[newPos] += prob * (beliefs[opponent][newPos] + 0.0001)
         newBeliefs.normalize()
         beliefs[opponent] = newBeliefs
 
@@ -318,18 +305,19 @@ class ReflexCaptureAgent(ApproximateQAgent):
                 self.refreshProbability(gameState,opponentIndex)
             pacmanPosition = gameState.getAgentPosition(self.index)
             for opponent, belief in beliefs.items():
-                    noisyDistance = gameState.getAgentDistances()[opponent]
-                    newBeliefs = util.Counter()
-                    for p in self.getLegalPositions(gameState):
-
-                        trueDistance = util.manhattanDistance(p, pacmanPosition)
-                        distanceProb = gameState.getDistanceProb(trueDistance, noisyDistance)
-                        if self.isHomeSide(p,gameState) and gameState.getAgentState(opponent).isPacman and trueDistance>5 and p not in self.startEdge(gameState):
-                            newBeliefs[p] = (beliefs[opponent][p]+ 0.0001) * distanceProb
-                        else:
-                            newBeliefs[p] = 0
-                        newBeliefs.normalize()
-                        beliefs[opponent] = newBeliefs
+                noisyDistance = gameState.getAgentDistances()[opponent]
+                newBeliefs = util.Counter()
+                for p in self.getLegalPositions(gameState):
+                    trueDistance = util.manhattanDistance(p, pacmanPosition)
+                    distanceProb = gameState.getDistanceProb(trueDistance, noisyDistance)
+                    if gameState.getAgentState(opponent).isPacman and p not in self.startEdge(gameState):
+                        if trueDistance > 5:
+                            if self.isHomeSide(p,gameState):
+                                newBeliefs[p] += (beliefs[opponent][p]+ 0.0001) * distanceProb
+                    else:
+                        newBeliefs[p] = 0
+                newBeliefs.normalize()
+                beliefs[opponent] = newBeliefs
 
     def startEdge(self,gameState):
         startEdge=[]
@@ -343,6 +331,7 @@ class ReflexCaptureAgent(ApproximateQAgent):
 
     def chooseAction(self, gameState):
         self.observationHistory.append(gameState)
+        self.observeAllOpponents(gameState)
         legalActions = gameState.getLegalActions(self.index)
         action = None
         ghosts,enemyPacmen,enemyIndexes = [],[],[]
@@ -370,16 +359,14 @@ class ReflexCaptureAgent(ApproximateQAgent):
         foodlist = self.getFood(gameState).asList()
 
         if len(legalActions):
-            if util.flipCoin(self.epsilon) and self.episodesCur < self.numTraining:
-                action = random.choice(legalActions)
-            else:
-                action = self.computeActionFromQValues(gameState)
-
+            action = self.computeActionFromQValues(gameState)
 
         carryFood = self.originalFood - len(foodlist)
         if self.isHomeSide(gameState.getAgentPosition(self.index), gameState):
             self.originalFood = self.originalFood - carryFood
             carryFood = 0
+            self.originalFood = len(self.getFood(gameState).asList())
+
         self.lastAction = action
         if (len(ghosts) > 0 and not self.isHomeSide(agentPos, gameState)):
             if enemyDis <= 4 and gameState.getAgentState(enemyInx).scaredTimer <= 4:
@@ -389,7 +376,8 @@ class ReflexCaptureAgent(ApproximateQAgent):
                     actionlist = self.aStarSearch(gameState, agentPos, heruisticDist)
                     action = actionlist[0]
                     return action
-        if carryFood > 10 and enemyInx != -1 and gameState.getAgentState(enemyInx).scaredTimer <= 4:
+
+        if carryFood > 9 and enemyInx != -1 and gameState.getAgentState(enemyInx).scaredTimer <= 4:
             if enemyPos != None:
                  self.refreshLegalActionAndCorners(gameState, enemyPos, 1)
             heruisticDist = self.breadthFirstSearch(agentPos, gameState)
@@ -397,7 +385,7 @@ class ReflexCaptureAgent(ApproximateQAgent):
                  actionlist = self.aStarSearch(gameState, agentPos, heruisticDist)
                  action = actionlist[0]
                  return action
-        if gameState.data.timeleft < 150:
+        if gameState.data.timeleft < 200 and carryFood >0:
             if enemyPos != None:
                  self.refreshLegalActionAndCorners(gameState, enemyPos, 1)
             heruisticDist = self.breadthFirstSearch(agentPos, gameState)
@@ -405,6 +393,7 @@ class ReflexCaptureAgent(ApproximateQAgent):
                  actionlist = self.aStarSearch(gameState, agentPos, heruisticDist)
                  action = actionlist[0]
                  return action
+
         if len(foodlist) <= 2:
             if enemyPos!=None:
                 self.refreshLegalActionAndCorners(gameState, enemyPos, 1)
@@ -414,17 +403,9 @@ class ReflexCaptureAgent(ApproximateQAgent):
                 action = actionlist[0]
                 return action
 
-        self.actionHistory.append(action)
-        if len(self.actionHistory) > 10:
-            if self.actionHistory[len(self.actionHistory) - 1] == self.actionHistory[len(self.actionHistory) - 3]:
-                if self.actionHistory[len(self.actionHistory) - 1] != self.actionHistory[len(self.actionHistory) - 2]:
-                    self.count += 1
-                    if self.count > 3:
-                        action = random.choice(legalActions)
         return action
 
     def breadthFirstSearch(self, myPos, gameState):
-
         explored, frontier = [], util.Queue()
         explored.append(myPos)
         frontier.push([myPos, []])
@@ -476,49 +457,96 @@ class ReflexCaptureAgent(ApproximateQAgent):
         return walls
 
     def getFeatures(self, gameState, action):
-        self.observeAllOpponents(gameState)
         features = util.Counter()
         successor = self.getSuccessor(gameState, action)
         myState = successor.getAgentState(self.index)
         myPos = successor.getAgentPosition(self.index)
+
+        ghosts, nonScaredGhosts, scaredGhosts,enemyPacmen = [],[],[] ,[]
+        for i in self.getOpponents(gameState):
+            if not successor.getAgentState(i).isPacman:
+                if successor.getAgentPosition(i)!=None:
+                    ghosts.append(successor.getAgentPosition(i))
+                if successor.getAgentState(i).scaredTimer > 0:
+                    nonScaredGhosts.append(i)
+                else:
+                    scaredGhosts.append(i)
+            if successor.getAgentState(i).isPacman:
+                enemyPacmen.append(i)
+        enemyInfo = []
+
+        if len(enemyPacmen)>0:
+            features['catchPacman'] = -len(enemyPacmen)
+            minPacmanPos[self.index] = self.getMiniDist(successor, myPos, enemyPacmen)
+
+            panicDis=0
+            if len(enemyPacmen)==1:
+                if minPacmanPos[self.index] != None and minPacmanPos[self.teamIndex]== None:
+                    panicDis = minPacmanPos[self.index][0][1]
+                elif minPacmanPos[self.index]!= None and minPacmanPos[self.teamIndex]!= None:
+                    if minPacmanPos[self.index][0][1] < minPacmanPos[self.teamIndex][0][1]:
+                        panicDis = minPacmanPos[self.index][0][1]
+                    elif minPacmanPos[self.index][0][1] == minPacmanPos[self.teamIndex][0][1]:
+                        if self.index<=1:
+                            panicDis = minPacmanPos[self.index][0][1]
+            if len(enemyPacmen)==2:
+                if minPacmanPos[self.index]!=None and minPacmanPos[self.teamIndex]!=None:
+                    if  len(minPacmanPos[self.index])>1 and len(minPacmanPos[self.teamIndex])==1:
+                        if util.manhattanDistance(minPacmanPos[self.index][1][0],minPacmanPos[self.teamIndex][0][0])<=3:
+                            panicDis = minPacmanPos[self.index][1][1]
+                        else:
+                            panicDis = minPacmanPos[self.index][0][1]
+                    elif  len(minPacmanPos[self.index])==1 and len(minPacmanPos[self.teamIndex])>1:
+                        panicDis = minPacmanPos[self.index][0][1]
+                    elif  len(minPacmanPos[self.index])>1 and len(minPacmanPos[self.teamIndex])>1:
+                        if util.manhattanDistance(minPacmanPos[self.index][0][0],minPacmanPos[self.teamIndex][0][0])<=3:
+                            if minPacmanPos[self.index][0][1] < minPacmanPos[self.teamIndex][0][1]:
+                                panicDis = minPacmanPos[self.index][0][1]
+                            else:
+                                panicDis = minPacmanPos[self.index][1][1]
+                        elif util.manhattanDistance(minPacmanPos[self.index][0][0], minPacmanPos[self.teamIndex][0][0])>3:
+                            if minPacmanPos[self.index][0][1] < minPacmanPos[self.index][1][1]:
+                                panicDis = minPacmanPos[self.index][0][1]
+                            else:
+                                panicDis = minPacmanPos[self.index][1][1]
+                elif minPacmanPos[self.index] != None and minPacmanPos[self.teamIndex] == None:
+                    if len(minPacmanPos[self.index])>1:
+                        if minPacmanPos[self.index][0][1] < minPacmanPos[self.index][1][1]:
+                            panicDis = minPacmanPos[self.index][0][1]
+                        else:
+                            panicDis = minPacmanPos[self.index][1][1]
+                    else:
+                        panicDis = minPacmanPos[self.index][0][1]
+
+            features['chaseEnemyValue'] = panicDis
+
+            if len(self.getFoodYouAreDefending(gameState).asList()) <= 10:
+                features['chaseEnemyValue'] *= 100
+        else:
+            minPacmanPos[self.index]=None
+            minPacmanPos[self.teamIndex] = None
+
+
         foodList = self.getFood(successor).asList()
         features['successorScore'] = -len(foodList)
+
+        capsulesList = self.getCapsules(successor)
+        features['capsulesScore'] = -len(capsulesList)
 
         if len(foodList) > 0:
             Distance = min([self.getMazeDistance(myPos, food) + abs(self.yAxis - food[1]) for food in foodList])
             features['distToFood'] = Distance
 
-        ghosts, nonScaredGhosts, scaredGhosts,enemyPacmen = [], [],[] ,[]
-        for i in self.getOpponents(gameState):
-            if not gameState.getAgentState(i).isPacman:
-                ghosts.append(gameState.getAgentPosition(i))
-                if gameState.getAgentState(i).scaredTimer > 0:
-                    nonScaredGhosts.append(i)
-                else:
-                    scaredGhosts.append(i)
-            if gameState.getAgentState(i).isPacman:
-                enemyPacmen.append(i)
+        defendCapsulesDist=self.getCapsulesYouAreDefending(successor)
+        if len(defendCapsulesDist)>0:
+            if len(enemyPacmen) >0:
+                features['defendCapsulesDist'] = min([self.getMazeDistance(i,myPos) for i in defendCapsulesDist])
 
-        pacmanPos, pacmanDist = self.getMiniDist(gameState, myPos, enemyPacmen)
-        minPacmanPos[self.index] = [pacmanPos, pacmanDist]
+        features['capsulesValue'] = self.getcapsulesValue(myPos,successor, nonScaredGhosts)
 
-        if len(enemyPacmen)>0 :
-            features['chaseEnemyValue'] = pacmanDist
+        if len(scaredGhosts)>0 and len(ghosts)>0 and not self.isHomeSide(myPos,gameState):
+            features['distToGhost'] = min([self.getMazeDistance(myPos,i) for i in ghosts])
 
-        features['capsulesValue'] = self.getcapsulesValue(myPos, successor, nonScaredGhosts)
-
-        if myState.numReturned != self.lastNumReturnedPellets:
-            self.defenseTime = 100.0
-            self.lastNumReturnedPellets = myState.numReturned
-
-        if self.defenseTime > 0 and len(enemyPacmen)>0:
-            self.defenseTime -= 1
-            features['chaseEnemyValue'] *= 100
-        else :
-            self.defenseTime=0
-
-        if len(self.getFoodYouAreDefending(successor).asList()) <= 10:
-            features['chaseEnemyValue'] *= 100
 
         if myPos in self.corners:
             features['corner'] = 1
@@ -526,6 +554,11 @@ class ReflexCaptureAgent(ApproximateQAgent):
         if action == Directions.STOP:
             features['stop'] = 1
         features['legalActions'] = self.getLegalActionModifier(gameState, 1)
+
+        if features['chaseEnemyValue']!=0:
+            features['defendCapsulesDist']=0
+            features['distToFood']=0
+            features['capsulesValue']=0
         return features
 
 class TopAgent(ReflexCaptureAgent):
