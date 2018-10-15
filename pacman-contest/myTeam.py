@@ -114,16 +114,6 @@ class ApproximateQAgent(CaptureAgent):
                     tempCost[explored.index(state)] = childDist
         return []
 
-    def getFeatures(self, gameState, action):
-
-        successor = self.getSuccessor(gameState, action)
-        features = util.Counter()
-        features['score'] = self.getScore(successor)
-        if not self.red:
-            features['score'] *= -1
-        features['choices'] = len(successor.getLegalActions(self.index))
-        return features
-
     def computeActionFromQValues(self, state):
         bestValue = -999999
         bestActions = None
@@ -290,7 +280,7 @@ class ReflexCaptureAgent(ApproximateQAgent):
             probPos[5] = (x, y)
             for newP in probPos.values():
                 if newP in self.getLegalPositions(gameState):
-                    newProbability[newP] = 1.0
+                    newProbability[p] = 1.0
             newProbability.normalize()
             for newPos, prob in newProbability.items():
                 newBeliefs[newPos] += prob * (beliefs[opponent][newPos] + 0.0001)
